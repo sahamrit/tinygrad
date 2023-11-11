@@ -16,16 +16,19 @@ def strides_for_shape(shape:Tuple[int, ...]) -> Tuple[int, ...]:
   return filter_strides(shape, tuple(strides))
 
 @functools.lru_cache(maxsize=None)
-def to_shape_strides(shape:Tuple[int, ...], strides:Tuple[int, ...]) -> Tuple[Tuple[int, int], ...]:
-  assert len(shape) == len(strides)
-  ret = [(shape[0], strides[0])] if shape else []
+def to_shape_strides(_shape:Tuple[int, ...], _strides:Tuple[int, ...], _mask:Tuple[Tuple[int, int], ...] = None) -> Tuple[Tuple[int, int, int], ...]:
+  assert len(_shape) == len(_strides)
+  shape = [s for idx, s in enumerate(_shape) if _shape[idx] != 1]
+  strides = [s for idx, s in enumerate(_strides) if _shape[idx] != 1]
+  mask = [s for idx, s in enumerate(_mask) if _shape[idx] != 1] if _mask else None
+  ret = [(shape[0], strides[0], 0)] if shape else []
   for i in range(1, len(shape)):
-    if ret[-1][1] == shape[i]*strides[i] or ret[-1][0] == 1:
-      ret[-1] = (ret[-1][0] * shape[i], strides[i])
-    elif shape[i] == 1:
-      continue
+    if mask and strides[i - 1] == 0 and mask[i - 1][1] - mask[i - 1][0] == 1:
+      ret[-1] = (ret[-1][0] * shape[i], strides[i], (ret[-1][2] + mask[i - 1][0]) * shape[i - 1])
+    elif ret[-1][1] == shape[i] * strides[i] or ret[-1][0] == 1:
+      ret[-1] = (ret[-1][0] * shape[i], strides[i], 0) 
     else:
-      ret.append((shape[i], strides[i]))
+      ret.append((shape[i], strides[i], 0))
   return tuple(ret)
 
 @functools.lru_cache(maxsize=None)
@@ -58,7 +61,7 @@ def _reshape_mask(view: View, new_shape:Tuple[sint, ...]) -> Tuple[Optional[Tupl
       # we combine the current mask with the next and go through the loop again with the next dimension
       mask = (next_mask[0]*old_dim+mask[0], (next_mask[1]-1)*old_dim+mask[1])
       old_dim *= next(r_shape, 1) 
-  for mask in (mask, *r_masks): # if the old shape has leading 1s, need to make sure their mask is (0,1), otherwise the mask is zero'd
+  for mask in r_masks: # if the old shape has leading 1s, need to make sure their mask is (0,1), otherwise the mask is zero'd
     if mask != (0,1): return ((0,0),)*len(new_shape), False
   return tuple(reversed(new_mask)), False
 
@@ -158,9 +161,10 @@ class View:
     # after the asserts, it's okay to check contiguous
     if self.contiguous: return View.create(new_shape)
 
-    strides, reverse_shape = [], reversed(new_shape)
-    for d, s in reversed(to_shape_strides(self.shape, self.strides)):
+    strides, reverse_shape, total_offset = [], reversed(new_shape), 0
+    for d, s, off in reversed(to_shape_strides(self.shape, self.strides, self.mask)):
       acc, new_stride, equal = 1, s, False
+      total_offset -= off
       while acc <= d and not equal:
         try: new_dim = next(reverse_shape)
         except StopIteration: break
@@ -172,6 +176,6 @@ class View:
     else:
       strides += [0,] * (len(new_shape) - len(strides))
       mask, extra = _reshape_mask(self, new_shape)
-      if not extra: return View.create(new_shape, tuple(reversed(strides)), self.offset, mask)
+      if not extra: return View.create(new_shape, tuple(reversed(strides)), self.offset + total_offset, mask)
 
     return None
