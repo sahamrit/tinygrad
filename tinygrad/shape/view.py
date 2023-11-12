@@ -21,14 +21,18 @@ def to_shape_strides(_shape:Tuple[int, ...], _strides:Tuple[int, ...], _mask:Tup
   shape = [s for idx, s in enumerate(_shape) if _shape[idx] != 1]
   strides = [s for idx, s in enumerate(_strides) if _shape[idx] != 1]
   mask = [s for idx, s in enumerate(_mask) if _shape[idx] != 1] if _mask else None
-  ret = [(shape[0], strides[0], 0)] if shape else []
+  mask_stride_0 = mask and mask[0][1] - mask[0][0] == 1 and strides[0] == 0
+  ret = [(shape[0], strides[0], (mask[0][0] if len(shape) != 1 else 0) if mask_stride_0 else 0)] if shape else ([(1, 0, 0)] if len(_shape) else [])
+  state = 1 if mask_stride_0 else 0
   for i in range(1, len(shape)):
-    if mask and strides[i - 1] == 0 and mask[i - 1][1] - mask[i - 1][0] == 1:
-      ret[-1] = (ret[-1][0] * shape[i], strides[i], (ret[-1][2] + mask[i - 1][0]) * shape[i - 1])
-    elif ret[-1][1] == shape[i] * strides[i] or ret[-1][0] == 1:
-      ret[-1] = (ret[-1][0] * shape[i], strides[i], 0) 
+    if mask and strides[i] == 0 and mask[i][1] - mask[i][0] == 1:
+      ret[-1] = (ret[-1][0] * shape[i], strides[i], ((ret[-1][2] * shape[i] if state == 1 else 0) + (mask[i][0] if i != len(shape) - 1 else 0))) ; state = 1
+    elif state == 1:
+      ret[-1] = (ret[-1][0] * shape[i], strides[i], ret[-1][2] * shape[i]); state = 2
+    elif (ret[-1][1] == shape[i] * strides[i] or ret[-1][0] == 1) and state != 2:
+      ret[-1] = (ret[-1][0] * shape[i], strides[i], 0); state = 0
     else:
-      ret.append((shape[i], strides[i], 0))
+      ret.append((shape[i], strides[i], 0)); state = 0
   return tuple(ret)
 
 @functools.lru_cache(maxsize=None)
@@ -164,7 +168,7 @@ class View:
     strides, reverse_shape, total_offset = [], reversed(new_shape), 0
     for d, s, off in reversed(to_shape_strides(self.shape, self.strides, self.mask)):
       acc, new_stride, equal = 1, s, False
-      total_offset -= off
+      total_offset = total_offset * d - off
       while acc <= d and not equal:
         try: new_dim = next(reverse_shape)
         except StopIteration: break
