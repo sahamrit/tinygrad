@@ -22,11 +22,14 @@ def to_shape_strides(_shape:Tuple[int, ...], _strides:Tuple[int, ...], _mask:Tup
   strides = [s for idx, s in enumerate(_strides) if _shape[idx] != 1]
   mask = [s for idx, s in enumerate(_mask) if _shape[idx] != 1] if _mask else None
   mask_stride_0 = mask and mask[0][1] - mask[0][0] == 1 and strides[0] == 0
-  ret = [(shape[0], strides[0], (mask[0][0] if len(shape) != 1 else 0) if mask_stride_0 else 0)] if shape else ([(1, 0, 0)] if len(_shape) else [])
+  ret = [(shape[0], strides[0], mask[0][0] if len(shape) != 1 and mask_stride_0 else 0)] if shape else ([(1, 0, 0)] if len(_shape) else [])
   state = 1 if mask_stride_0 else 0
   for i in range(1, len(shape)):
-    if mask and strides[i] == 0 and mask[i][1] - mask[i][0] == 1:
-      ret[-1] = (ret[-1][0] * shape[i], strides[i], ((ret[-1][2] * shape[i] if state == 1 else 0) + (mask[i][0] if i != len(shape) - 1 else 0))) ; state = 1
+    if mask and strides[i] == 0 and mask[i][1] - mask[i][0] == 1 and i != len(shape) - 1:
+      if state == 1:
+        ret[-1] = (ret[-1][0] * shape[i], strides[i], ret[-1][2] * shape[i]  + mask[i][0])
+      else:
+        ret.append((ret[-1][0] * shape[i], strides[i], mask[i][0])); state = 1
     elif state == 1:
       ret[-1] = (ret[-1][0] * shape[i], strides[i], ret[-1][2] * shape[i]); state = 2
     elif (ret[-1][1] == shape[i] * strides[i] or ret[-1][0] == 1) and state != 2:
