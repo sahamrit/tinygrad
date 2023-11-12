@@ -27,9 +27,9 @@ def to_shape_strides(_shape:Tuple[int, ...], _strides:Tuple[int, ...], _mask:Tup
   for i in range(1, len(shape)):
     if mask and strides[i] == 0 and mask[i][1] - mask[i][0] == 1 and i != len(shape) - 1:
       if state == 1:
-        ret[-1] = (ret[-1][0] * shape[i], strides[i], ret[-1][2] * shape[i]  + mask[i][0])
+        ret[-1] = (ret[-1][0] * shape[i], 0, ret[-1][2] * shape[i]  + mask[i][0])
       else:
-        ret.append((ret[-1][0] * shape[i], strides[i], mask[i][0])); state = 1
+        ret.append((shape[i], 0, mask[i][0])); state = 1
     elif state == 1:
       ret[-1] = (ret[-1][0] * shape[i], strides[i], ret[-1][2] * shape[i]); state = 2
     elif (ret[-1][1] == shape[i] * strides[i] or ret[-1][0] == 1) and state != 2:
@@ -168,10 +168,10 @@ class View:
     # after the asserts, it's okay to check contiguous
     if self.contiguous: return View.create(new_shape)
 
-    strides, reverse_shape, total_offset = [], reversed(new_shape), 0
+    strides, reverse_shape, total_offset, acc_d = [], reversed(new_shape), 0, 1
     for d, s, off in reversed(to_shape_strides(self.shape, self.strides, self.mask)):
       acc, new_stride, equal = 1, s, False
-      total_offset = total_offset * d - off
+      total_offset -= acc_d * off; acc_d *= d
       while acc <= d and not equal:
         try: new_dim = next(reverse_shape)
         except StopIteration: break
